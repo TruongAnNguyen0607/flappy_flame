@@ -2,20 +2,25 @@ import 'dart:ui';
 import 'dart:async';
 import 'dart:math';
 import 'package:flame/components.dart' hide Timer;
-import 'package:flappy_blanchon/component/pipe.dart';
+
 import '../component/pipe.dart';
 
 class PipeGenerator {
-  Image _topPipeImage;
-  Vector2 _topPipePosition;
-  Image _bottomPipeImage;
-  Vector2 _bottomPipePosition;
-  double _gapSize;
-  List<Pipe> _pipes;
+  late Image _topPipeImage;
+  late Vector2 _topPipePosition;
+  late Image _bottomPipeImage;
+  late Vector2 _bottomPipePosition;
+  late double _gapSize;
+  late List<Pipe> _pipes;
   static const MIN_PIPE_HEIGHT = 100;
 
-  PipeGenerator(Image topPipeImage, Image bottomPipeImage,
-      Vector2 topPipePosition, Vector2 bottomPipePosition, double gapSize) {
+  PipeGenerator(
+    Image topPipeImage,
+    Image bottomPipeImage,
+    Vector2 topPipePosition,
+    Vector2 bottomPipePosition,
+    double gapSize,
+  ) {
     _topPipeImage = topPipeImage;
     _bottomPipeImage = bottomPipeImage;
     // create a new Vector2 to avoid position issues
@@ -31,9 +36,9 @@ class PipeGenerator {
   }
 
   Stream<SpriteComponent> startPipeGeneration() {
-    StreamController<SpriteComponent> controller;
-    Timer timer;
-    final interval = Duration(seconds: 2);
+    late StreamController<SpriteComponent> controller;
+    Timer? timer;
+    final interval = Duration(milliseconds: 2500);
 
     void tick(_) {
       final pipesHeight = _getPipesHeight();
@@ -44,11 +49,17 @@ class PipeGenerator {
       // create new Vector2 to avoid position issues
       final topPipePosition = Vector2(_topPipePosition.x, _topPipePosition.y);
       final bottomPipePosition = Vector2(
-          _bottomPipePosition.x, (_bottomPipePosition.y - bottomPipeSize.y));
+        _bottomPipePosition.x,
+        (_bottomPipePosition.y - bottomPipeSize.y),
+      );
 
       final topPipe = Pipe(_topPipeImage, topPipeSize, topPipePosition, true);
-      final bottomPipe =
-          Pipe(_bottomPipeImage, bottomPipeSize, bottomPipePosition, false);
+      final bottomPipe = Pipe(
+        _bottomPipeImage,
+        bottomPipeSize,
+        bottomPipePosition,
+        false,
+      );
 
       _pipes.addAll([topPipe, bottomPipe]);
 
@@ -58,7 +69,7 @@ class PipeGenerator {
 
     void stopTimer() {
       if (timer != null) {
-        timer.cancel();
+        timer?.cancel();
         timer = null;
       }
 
@@ -70,10 +81,11 @@ class PipeGenerator {
     }
 
     controller = StreamController<SpriteComponent>(
-        onListen: startTimer,
-        onPause: stopTimer,
-        onResume: startTimer,
-        onCancel: stopTimer);
+      onListen: startTimer,
+      onPause: stopTimer,
+      onResume: startTimer,
+      onCancel: stopTimer,
+    );
 
     return controller.stream;
   }
@@ -88,7 +100,7 @@ class PipeGenerator {
 
     // map set item to null if it's not return by callback
     // so we need to remove null item from _pipes
-    _pipes = newPipes.where((pipe) => pipe != null).toList();
+    _pipes = newPipes.whereType<Pipe>().toList();
   }
 
   PipesHeight _getPipesHeight() {

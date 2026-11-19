@@ -1,13 +1,11 @@
 import 'dart:async';
-import 'dart:ui';
-import 'package:flame/effects.dart';
-import 'package:flame/parallax.dart';
+
 import 'package:flutter/services.dart';
-import 'package:flame/gestures.dart';
+import 'package:flame/events.dart';
 import 'package:flame/components.dart' hide Timer;
 import 'package:flutter/material.dart';
 import 'package:flame/game.dart';
-import 'package:hive/hive.dart';
+
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flame_audio/flame_audio.dart';
 import '../component/index.dart';
@@ -16,28 +14,27 @@ import './score_sprite_generator.dart';
 
 enum GameState { Playing, Stagging, DeadMenu }
 
-class FlappyGame extends BaseGame with TapDetector {
+class FlappyGame extends FlameGame with TapCallbacks {
+  static const startMenuOverlay = 'startMenu';
   static const BOX_KEY = 'flappy_flame';
   static const BEST_SCORE_KEY = 'best_score';
   GameState gameState = GameState.Stagging;
-  Bird _bird;
-  Bg _bg;
-  Ground _ground;
-  GameOver _gameOver;
-  ScoreBoard _scoreBoard;
-  ScoreSpriteGenerator _scoreDisplayer;
-  PipeGenerator _pipeGenerator;
-  StreamSubscription<SpriteComponent> _pipesSubscription;
-  int _score;
-  Box _hiveBox;
-  bool _isTaped;
-  bool _isStaggingReady;
+  late Bird _bird;
+  late Bg _bg;
+  late Ground _ground;
+  late GameOver _gameOver;
+  late ScoreBoard _scoreBoard;
+  late ScoreSpriteGenerator _scoreDisplayer;
+  late PipeGenerator _pipeGenerator;
+  late StreamSubscription<SpriteComponent> _pipesSubscription;
+  late int _score;
+  Box? _hiveBox;
+  late bool _isTaped;
+  late bool _isStaggingReady;
 
   @override
   Future<void> onLoad() async {
-    SystemChrome.setPreferredOrientations([
-      DeviceOrientation.portraitUp,
-    ]);
+    SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
     _isTaped = false;
     _isStaggingReady = true;
 
@@ -57,8 +54,6 @@ class FlappyGame extends BaseGame with TapDetector {
     final birdImage3 = await Sprite.load('bird_3.png');
     final birdImages = [birdImage1, birdImage2, birdImage3];
     final birdAnimation = SpriteAnimation.spriteList(birdImages, stepTime: 0.2);
-    final bgParallaxImage = await loadParallaxImage('bg.png',
-        alignment: Alignment.bottomCenter, fill: LayerFill.height);
     final groundImage = await images.load('ground.png');
     final topPipeImage = await images.load('top-pipe.png');
     final bottomPipeImage = await images.load('bottom-pipe.png');
@@ -84,26 +79,42 @@ class FlappyGame extends BaseGame with TapDetector {
       image6,
       image7,
       image8,
-      image9
+      image9,
     ];
 
     final blanchonSize = Vector2(64, 64);
 
     // Init core
-    _pipeGenerator = PipeGenerator(topPipeImage, bottomPipeImage,
-        topPipePosition, bottomPipePosition, blanchonSize.y * 3);
+    _pipeGenerator = PipeGenerator(
+      topPipeImage,
+      bottomPipeImage,
+      topPipePosition,
+      bottomPipePosition,
+      blanchonSize.y * 3.5,
+    );
     _scoreDisplayer = ScoreSpriteGenerator(
-        Vector2((size.x / 2), size.y / 10), scoreElementImages);
+      Vector2((size.x / 2), size.y / 10),
+      scoreElementImages,
+    );
 
     // Init components
     _bird = Bird(birdAnimation, blanchonSize, blanchonPosition);
-    _gameOver = GameOver(gameOverImage, Vector2((size.x / 3) * 2, size.y / 12),
-        Vector2(size.x / 2, size.y / 10));
-    _scoreBoard = ScoreBoard(scoreBoardImage, Vector2(size.x, size.x),
-        Vector2(size.x / 2, size.y / 2));
-    _bg = Bg(bgParallaxImage, size);
+    _gameOver = GameOver(
+      gameOverImage,
+      Vector2((size.x / 3) * 2, size.y / 12),
+      Vector2(size.x / 2, size.y / 10),
+    );
+    _scoreBoard = ScoreBoard(
+      scoreBoardImage,
+      Vector2(size.x, size.x),
+      Vector2(size.x / 2, size.y / 2),
+    );
+    _bg = Bg(size);
     _ground = Ground(
-        groundImage, Vector2(size.x, 150), Vector2(0, (size.y - (size.y / 6))));
+      groundImage,
+      Vector2(size.x, 150),
+      Vector2(0, (size.y - (size.y / 6))),
+    );
 
     add(_bg);
     add(_ground);
@@ -114,30 +125,30 @@ class FlappyGame extends BaseGame with TapDetector {
     // Init displayed score
     getDisplayedScore();
     _score = 0;
+    overlays.add(startMenuOverlay);
   }
 
   @override
-  void onTapDown(TapDownDetails details) {
+  void onTapDown(TapDownEvent event) {
     switch (gameState) {
       case GameState.Playing:
         FlameAudio.play('flap.mp3');
         _isTaped = true;
         break;
       case GameState.Stagging:
-        FlameAudio.play('flap.mp3');
-        _startGame();
         break;
       case GameState.DeadMenu:
         if (_isStaggingReady) {
           _startStagging();
         }
         break;
-      default:
-        break;
     }
   }
 
-  void _startGame() {
+  void startGame() {
+    if (gameState != GameState.Stagging) return;
+    overlays.remove(startMenuOverlay);
+    FlameAudio.play('flap.mp3');
     gameState = GameState.Playing;
     getPipes();
     _updateDisplayedScore(_score);
@@ -147,6 +158,7 @@ class FlappyGame extends BaseGame with TapDetector {
 
   void _startStagging() {
     gameState = GameState.Stagging;
+    overlays.add(startMenuOverlay);
 
     _bg.restartMovement();
 
@@ -156,7 +168,11 @@ class FlappyGame extends BaseGame with TapDetector {
     removeAll(_pipeGenerator.getPipes);
     _pipeGenerator.cleanUpPipes();
     _score = 0;
-    removeAll(_scoreDisplayer.scoreElementSprites);
+    removeAll(
+      _scoreDisplayer.scoreElementSprites.where(
+        (sprite) => sprite.parent == this,
+      ),
+    );
 
     remove(_gameOver);
     remove(_scoreBoard);
@@ -170,16 +186,20 @@ class FlappyGame extends BaseGame with TapDetector {
         _isTaped = false;
       }
 
-      _bird.fall();
+      _bird.fall(dt);
       _pipeGenerator.updatePipes();
-      _checkCollision();
-      _updateScore();
     }
     super.update(dt);
+    if (gameState == GameState.Playing) {
+      _checkCollision();
+      if (gameState == GameState.Playing) _updateScore();
+    }
   }
 
   void _checkCollision() {
-    if (_isBlanchonHitingGround() || _isBlanchonHitingPipes()) {
+    if (_bird.hitCeiling ||
+        _isBlanchonHitingGround() ||
+        _isBlanchonHitingPipes()) {
       _handleEndGame();
     }
   }
@@ -204,7 +224,8 @@ class FlappyGame extends BaseGame with TapDetector {
     return isCollision;
   }
 
-  bool _isRectCollision(Rect rect1, Rect rect2) => (rect1.left < rect2.right &&
+  bool _isRectCollision(Rect rect1, Rect rect2) =>
+      (rect1.left < rect2.right &&
       rect1.right > rect2.left &&
       rect1.top < rect2.bottom &&
       rect1.bottom > rect2.top);
@@ -226,20 +247,36 @@ class FlappyGame extends BaseGame with TapDetector {
     });
   }
 
-  void _updateDisplayedScore(int score,
-      {double customYPosition, bool shouldCleanUp = true}) {
-    removeAll(_scoreDisplayer.scoreElementSprites);
-    _scoreDisplayer.generateScoreSprites(score,
-        customYPosition: customYPosition, shouldCleanUp: shouldCleanUp);
+  void _updateDisplayedScore(
+    int score, {
+    double? customYPosition,
+    bool shouldCleanUp = true,
+  }) {
+    removeAll(
+      _scoreDisplayer.scoreElementSprites.where(
+        (sprite) => sprite.parent == this,
+      ),
+    );
+    _scoreDisplayer.generateScoreSprites(
+      score,
+      customYPosition: customYPosition,
+      shouldCleanUp: shouldCleanUp,
+    );
   }
 
   void _updateEndGameDisplayedScore() {
     final bestScore = _getBestScore();
 
-    _updateDisplayedScore(_score,
-        customYPosition: _scoreBoard.scoreYPosition, shouldCleanUp: false);
-    _updateDisplayedScore(bestScore,
-        customYPosition: _scoreBoard.bestScoreYPosition, shouldCleanUp: false);
+    _updateDisplayedScore(
+      _score,
+      customYPosition: _scoreBoard.scoreYPosition,
+      shouldCleanUp: false,
+    );
+    _updateDisplayedScore(
+      bestScore,
+      customYPosition: _scoreBoard.bestScoreYPosition,
+      shouldCleanUp: false,
+    );
   }
 
   void _handleEndGame() {
@@ -255,7 +292,11 @@ class FlappyGame extends BaseGame with TapDetector {
 
     _pipesSubscription.cancel();
 
-    removeAll(_scoreDisplayer.scoreElementSprites);
+    removeAll(
+      _scoreDisplayer.scoreElementSprites.where(
+        (sprite) => sprite.parent == this,
+      ),
+    );
     _updateBestScore();
     _updateEndGameDisplayedScore();
 
@@ -271,7 +312,7 @@ class FlappyGame extends BaseGame with TapDetector {
     final currentBestScore = _getBestScore();
 
     if (_score > currentBestScore) {
-      _hiveBox.put(BEST_SCORE_KEY, _score);
+      _hiveBox!.put(BEST_SCORE_KEY, _score);
     }
   }
 
@@ -289,7 +330,7 @@ class FlappyGame extends BaseGame with TapDetector {
 
   int _getBestScore() {
     if (_hiveBox != null) {
-      final bestScore = _hiveBox.get(BEST_SCORE_KEY) as int;
+      final bestScore = _hiveBox!.get(BEST_SCORE_KEY) as int?;
       return bestScore ?? 0;
     }
     return 0;
